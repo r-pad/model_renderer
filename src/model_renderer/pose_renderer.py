@@ -17,8 +17,10 @@ if __name__ != '__main__':
 render_root_folder = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, render_root_folder)
 import transformations as tf_trans
+import subprocess
+import uuid
 
-blank_blend_file_path = os.path.join(render_root_folder, 'blank.blend') 
+blank_blend_file_path = '/ssd0/bokorn/renderer/blank.blend'
 #Should be a system variable
 #blender_executable_path = '/home/bokorn/src/blender/blender-2.79-linux-glibc219-x86_64/blender'
 #blender_executable_path = 'blender'
@@ -102,8 +104,8 @@ def objCentenedCameraPos(dist, azimuth_deg, elevation_deg):
 
 def renderView(model_file, pose_quats, camera_dist, filenames = None, 
                standard_lighting=False, debug_mode=False):
-    temp_dirname = tempfile.mkdtemp()
-
+    temp_dirname = '/ssd0/bokorn/tmp/{}'.format(uuid.uuid4()) #tempfile.mkdtemp()
+    os.makedirs(temp_dirname)
     assert filenames is None or len(pose_quats) == len(filenames), 'filenames must be None or same size as pose_quats, Expected {}, Got {}'.format(len(pose_quats), len(filenames))
 
     if(filenames is None):
@@ -118,8 +120,9 @@ def renderView(model_file, pose_quats, camera_dist, filenames = None,
             image_filenames.append(os.path.join(temp_dirname, '{0:0{1}d}.png'.format(j,num_digits)))
     else:
         image_filenames = filenames
-        
-    path_file = temp_dirname + '/paths.txt'
+    
+    
+    path_file = temp_dirname + '/path.txt'.format()
     with open(path_file, 'w') as f:
         for filename in image_filenames:
             f.write('{}\n'.format(filename))
@@ -152,12 +155,11 @@ def renderView(model_file, pose_quats, camera_dist, filenames = None,
         pose_quats = str([q.tolist() for q in pose_quats]).replace(',','').replace('[','').replace(']','')
         quat_cmd = '--pos_quats {}'.format(pose_quats)
         
-    render_cmd = '{} {} --background --python {} -- --shape_file {} --camera_dist {} --path_file {} {} {} {}'.format(
+    render_cmd = '{} {} --background --python {} -- --shape_file {} --camera_dist {} --path_file {} {} {} {} '.format(
         blender_executable_path, blank_blend_file_path, render_code, model_file, camera_dist, path_file, quat_cmd, lighting_cmd, debug_cmd)     
-
+    rendered_imgs = []
     try:
         os.system(render_cmd)
-
         image_filenames = sorted(glob.glob(temp_dirname+'/*.png'))
         
         rendered_imgs = []
@@ -168,11 +170,9 @@ def renderView(model_file, pose_quats, camera_dist, filenames = None,
                 rendered_imgs.append(img)
                 
         shutil.rmtree(temp_dirname)
-        
     except Exception as e:
         shutil.rmtree(temp_dirname)
         raise(e)
-        
     return rendered_imgs
 
 
@@ -205,6 +205,11 @@ def main():
 
     import bpy
     # Input parameters
+    bpy.data.scenes['Scene'].render.use_raytrace = False
+    bpy.data.scenes['Scene'].render.use_simplify = True
+    bpy.data.scenes['Scene'].render.use_shadows = False
+    bpy.data.scenes['Scene'].render.resolution_x = 448
+    bpy.data.scenes['Scene'].render.resolution_y = 448
 
     bpy.context.scene.cycles.device = 'GPU'
     bpy.ops.import_scene.obj(filepath=args.shape_file) 
@@ -303,3 +308,4 @@ def main():
 
 if __name__=='__main__':
     main()
+    
