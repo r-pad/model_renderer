@@ -17,12 +17,12 @@ if __name__ != '__main__':
 render_code = os.path.abspath(__file__)
 render_root_folder = os.path.dirname(render_code)
 sys.path.insert(0, render_root_folder)
+
 import transformations as tf_trans
 
 blender_executable_path = os.environ.get('BLENDER_PATH', 'blender')
 blank_blend_file_path = os.environ.get('BLANK_BLEND_PATH', 
         os.path.join(render_root_folder, 'blank.blend'))
-
 temp_render_dir = os.environ.get('TEMP_RENDER_DIR', None)
 
 def camera2quat(azimuth_deg, elevation_deg, tilt_deg):
