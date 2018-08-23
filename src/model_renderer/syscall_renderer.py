@@ -102,8 +102,9 @@ def objCentenedCameraPos(dist, azimuth_deg, elevation_deg):
     z = (dist * math.sin(phi))
     return (x, y, z)
 
-def renderView(model_file, pose_quats, camera_dist, filenames = None, 
-               standard_lighting=False, debug_mode=False):
+def renderView(model_file, pose_quats, filenames = None, 
+               camera_dist=2, standard_lighting=False, 
+               debug_mode=False):
     temp_dirname = '/ssd0/bokorn/tmp/{}'.format(uuid.uuid4()) #tempfile.mkdtemp()
     os.makedirs(temp_dirname)
     assert filenames is None or len(pose_quats) == len(filenames), 'filenames must be None or same size as pose_quats, Expected {}, Got {}'.format(len(pose_quats), len(filenames))
@@ -208,8 +209,8 @@ def main():
     bpy.data.scenes['Scene'].render.use_raytrace = False
     bpy.data.scenes['Scene'].render.use_simplify = True
     bpy.data.scenes['Scene'].render.use_shadows = False
-    bpy.data.scenes['Scene'].render.resolution_x = 448*4
-    bpy.data.scenes['Scene'].render.resolution_y = 448*4
+    bpy.data.scenes['Scene'].render.resolution_x = 448
+    bpy.data.scenes['Scene'].render.resolution_y = 448
 
     bpy.context.scene.cycles.device = 'GPU'
     shape_file_ext = args.shape_file.split('.')[-1]
