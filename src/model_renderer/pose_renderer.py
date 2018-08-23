@@ -5,18 +5,20 @@ Created on Tue Nov 21 17:35:53 2017
 @author: bokorn
 """
 import numpy as np
-import uuid
 import shutil
 import tempfile
 import cv2
 import sys
 import os
 import plyfile
-
-render_root_folder = os.path.dirname(os.path.abspath(__file__))
-blank_blend_filepath = os.path.join(render_root_folder, 'blank.blend')
+import uuid
 
 import quat_math.transformations as tf_trans
+
+render_root_folder = os.path.dirname(os.path.abspath(__file__))
+blank_blend_file_path = os.environ.get('BLANK_BLEND_PATH', 
+        os.path.join(render_root_folder, 'blank.blend'))
+temp_render_dir = os.environ.get('TEMP_RENDER_DIR', None)
 
 def mute():
     # redirect output to log file
@@ -49,12 +51,13 @@ class BpyRenderer(object):
     import bpy   
     #unmute(stdout)
 
-    def __init__(self, blend_filepath = blank_blend_filepath,
-                 root_temp_dir = '/ssd0/bokorn/tmp/',
+    def __init__(self, blend_file_path = blank_blend_file_path,
                  resolution = (448,448)):
-        self.models = []
-        self.root_temp_dir = root_temp_dir
-        self.bpy.ops.wm.open_mainfile(filepath=blend_filepath)
+        self.models = {}
+        stdout = mute()
+        self.temp_dir = tempfile.mkdtemp(dir = temp_render_dir)
+        unmute(stdout)
+        self.bpy.ops.wm.open_mainfile(filepath=blend_file_path)
         self.bpy.data.scenes['Scene'].render.use_raytrace = False
         self.bpy.data.scenes['Scene'].render.use_simplify = True
         self.bpy.data.scenes['Scene'].render.use_shadows = False
@@ -161,8 +164,9 @@ class BpyRenderer(object):
             #mat.use_vertex_color_paint = True
         else:
             raise ValueError('Invalid Model File Type {}'.format(model_file_ext))
-
-        self.models.append(self.bpy.context.selected_objects)
+        model_id = uuid.uuid4()
+        self.models[model_id] = self.bpy.context.selected_objects
+        return model_id
 
     def loadPly(self, model_filename):
         self.bpy.ops.import_mesh.ply(filepath=model_filename)
@@ -188,111 +192,109 @@ class BpyRenderer(object):
         mat.use_vertex_color_light = True
         obj.data.materials.append(mat)
 
-    def hideModel(self, idx, hide=True):
-        for obj in self.models[idx]:
+    def hideModel(self, model_id, hide=True):
+        for obj in self.models[model_id]:
             try:
                 obj.hide_render = hide 
             except ReferenceError:
                 pass
 
     def hideAll(self, hide=True):
-        for model in self.models:
+        for model in self.models.values():
             for obj in model:
                 try:
                     obj.hide_render = hide
                 except ReferenceError:
                     pass
 
-    def deleteModel(self, idx):
+    def deleteModel(self, model_id):
         self.bpy.ops.object.select_all(action='DESELECT')
-        for obj in self.models[idx]:
+        for obj in self.models[model_id]:
             try:
                 obj.select = True
             except ReferenceError:
                 pass
         self.bpy.ops.object.delete(use_global=False)
-        del self.models[idx]
+        del self.models[model_id]
 
     def deleteAll(self):
         self.bpy.ops.object.select_all(action='DESELECT')
-        for model in self.models:
+        for model in self.models.values():
             for obj in model:
                 try:
                     obj.select = True
                 except ReferenceError:
                     pass
         self.bpy.ops.object.delete(use_global=False)
-        self.models = []
+        self.models = {}
 
     def renderPose(self, pose_quats, 
                    image_filenames=None, 
                    camera_dist = 2.0):
-        if(image_filenames is None):
-            if(self.root_temp_dir is not None):
-                temp_dirname = self.root_temp_dir + str(uuid.uuid4()) 
-            else:
-                temp_dirname = tempfile.mkdtemp()
+        return_images = False
+        try:
+            if(image_filenames is None):
+                assert image_filenames is None or len(pose_quats) == len(image_filenames), 'image_filenames must be None or same size as pose_quats, Expected {}, Got {}'.format(len(pose_quats), len(filenames))
+                return_images = True
+                image_filenames = []
+                if(type(pose_quats) == np.ndarray):
+                    num_quats = pose_quats.shape[0]
+                else:
+                    num_quats = len(pose_quats)
+        
+                num_digits = len(str(num_quats))
+                for j in range(num_quats):
+                    image_filenames.append(os.path.join(self.temp_dir, '{0:0{1}d}.png'.format(j,num_digits)))
 
-            os.makedirs(temp_dirname)
-            assert image_filenames is None or len(pose_quats) == len(image_filenames), 'image_filenames must be None or same size as pose_quats, Expected {}, Got {}'.format(len(pose_quats), len(filenames))
-            image_filenames = []
-            if(type(pose_quats) == np.ndarray):
-                num_quats = pose_quats.shape[0]
-            else:
-                num_quats = len(pose_quats)
-    
-            num_digits = len(str(num_quats))
-            for j in range(num_quats):
-                image_filenames.append(os.path.join(temp_dirname, '{0:0{1}d}.png'.format(j,num_digits)))
-        else:
-            temp_dirname = None
+            camera_mat = np.eye(4)
+            camera_mat[0,3] = camera_dist
+            for pose_num, (pos_quat, filename) in enumerate(zip(pose_quats, image_filenames)):
+                if(self.randomize_lighting):
+                    self.randomizeLighting()
 
-        camera_mat = np.eye(4)
-        camera_mat[0,3] = camera_dist
-        for pose_num, (pos_quat, filename) in enumerate(zip(pose_quats, image_filenames)):
-            if(self.randomize_lighting):
-                self.randomizeLighting()
+                pos_quat = pos_quat.copy()
+                pos_quat[2] *= -1.0
+                quat_mat = tf_trans.quaternion_matrix(pos_quat)
+                view_mat = quat_mat.dot(camera_mat)
+                cam_pos = view_mat[:3,3]              
+                cam_quat = tf_trans.quaternion_from_matrix(view_mat)
+                   
+                ro_mat_pre = np.array([[1,0,0],[0,0,1],[0,-1,0]])
+                ro_mat_post = np.array([[0,0,1],[0,-1,0],[1,0,0]])
+                cam_rot = ro_mat_pre.dot(view_mat[:3,:3].T.dot(ro_mat_post))
+                cam_mat = np.eye(4)       
+                cam_mat[:3,:3] = cam_rot
+                cam_quat = tf_trans.quaternion_from_matrix(cam_mat)
+                
+                self.cam_obj.location[0] = cam_pos[0]
+                self.cam_obj.location[1] = cam_pos[1]
+                self.cam_obj.location[2] = cam_pos[2]
+                self.cam_obj.rotation_mode = 'QUATERNION'
+                # Blender is [w,x,y,z]
+                # Transform is [x,y,z,w]
+                self.cam_obj.rotation_quaternion[0] = cam_quat[0]
+                self.cam_obj.rotation_quaternion[1] = cam_quat[1]
+                self.cam_obj.rotation_quaternion[2] = cam_quat[2]
+                self.cam_obj.rotation_quaternion[3] = cam_quat[3]
 
-            pos_quat = pos_quat.copy()
-            pos_quat[2] *= -1.0
-            quat_mat = tf_trans.quaternion_matrix(pos_quat)
-            view_mat = quat_mat.dot(camera_mat)
-            cam_pos = view_mat[:3,3]              
-            cam_quat = tf_trans.quaternion_from_matrix(view_mat)
-               
-            ro_mat_pre = np.array([[1,0,0],[0,0,1],[0,-1,0]])
-            ro_mat_post = np.array([[0,0,1],[0,-1,0],[1,0,0]])
-            cam_rot = ro_mat_pre.dot(view_mat[:3,:3].T.dot(ro_mat_post))
-            cam_mat = np.eye(4)       
-            cam_mat[:3,:3] = cam_rot
-            cam_quat = tf_trans.quaternion_from_matrix(cam_mat)
-            
-            self.cam_obj.location[0] = cam_pos[0]
-            self.cam_obj.location[1] = cam_pos[1]
-            self.cam_obj.location[2] = cam_pos[2]
-            self.cam_obj.rotation_mode = 'QUATERNION'
-            # Blender is [w,x,y,z]
-            # Transform is [x,y,z,w]
-            self.cam_obj.rotation_quaternion[0] = cam_quat[0]
-            self.cam_obj.rotation_quaternion[1] = cam_quat[1]
-            self.cam_obj.rotation_quaternion[2] = cam_quat[2]
-            self.cam_obj.rotation_quaternion[3] = cam_quat[3]
+                self.bpy.data.scenes['Scene'].render.filepath = filename
+                stdout = mute()
+                self.bpy.ops.render.render( write_still=True )
+                unmute(stdout)
 
-            self.bpy.data.scenes['Scene'].render.filepath = filename
-            stdout = mute()
-            self.bpy.ops.render.render( write_still=True )
-            unmute(stdout)
-
-        if(temp_dirname is not None):
-            try:
+            if(return_images):
                 rendered_imgs = []
                 for render_filename in image_filenames:
                     img = cv2.imread(render_filename, cv2.IMREAD_UNCHANGED)
                     rendered_imgs.append(img)
                 return rendered_imgs
-            except Exception as e:
-                raise(e)
-            finally:
-                shutil.rmtree(temp_dirname)
+        except Exception as e:
+            raise(e)
+        finally:
+            if(return_images):
+                for render_filename in image_filenames:
+                    os.remove(render_filename)
 
+    def __del__(self):
+        shutil.rmtree(self.temp_dir)
 
