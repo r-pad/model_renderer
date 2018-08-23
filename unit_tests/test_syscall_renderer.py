@@ -18,6 +18,8 @@ def testSyscallRenderer():
     print('Testing Syscall Renderer')
     print('========================\n')
     print('Loading Model: {}'.format(model_filename))
+    img = renderView(model_filename, [quat])[0]
+    print('Returning Render: Size: {}, Min: {}, Max: {}'.format(img.shape, img.min(), img.max()))
     print('Saving Render: {}'.format(image_filename))
     renderView(model_filename, [quat], 
                filenames=[image_filename],
