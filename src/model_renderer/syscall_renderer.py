@@ -14,18 +14,16 @@ import os, tempfile, glob, shutil
 if __name__ != '__main__':
     import cv2
 
-render_root_folder = os.path.dirname(os.path.abspath(__file__))
+render_code = os.path.abspath(__file__)
+render_root_folder = os.path.dirname(render_code)
 sys.path.insert(0, render_root_folder)
 import transformations as tf_trans
-import subprocess
-import uuid
 
-blank_blend_file_path = '/ssd0/bokorn/renderer/blank.blend'
-#Should be a system variable
-#blender_executable_path = '/home/bokorn/src/blender/blender-2.79-linux-glibc219-x86_64/blender'
-#blender_executable_path = 'blender'
-blender_executable_path = os.environ['BLENDER_PATH']
-render_code = os.path.abspath(__file__)
+blender_executable_path = os.environ.get('BLENDER_PATH', 'blender')
+blank_blend_file_path = os.environ.get('BLANK_BLEND_PATH', 
+        os.path.join(render_root_folder, 'blank.blend'))
+
+temp_render_dir = os.environ.get('TEMP_RENDER_DIR', None)
 
 def camera2quat(azimuth_deg, elevation_deg, tilt_deg):
     cx, cy, cz = objCentenedCameraPos(1, azimuth_deg, elevation_deg)
@@ -105,61 +103,60 @@ def objCentenedCameraPos(dist, azimuth_deg, elevation_deg):
 def renderView(model_file, pose_quats, filenames = None, 
                camera_dist=2, standard_lighting=False, 
                debug_mode=False):
-    temp_dirname = '/ssd0/bokorn/tmp/{}'.format(uuid.uuid4()) #tempfile.mkdtemp()
-    os.makedirs(temp_dirname)
     assert filenames is None or len(pose_quats) == len(filenames), 'filenames must be None or same size as pose_quats, Expected {}, Got {}'.format(len(pose_quats), len(filenames))
-
-    if(filenames is None):
-        image_filenames = []
-        if(type(pose_quats) == np.ndarray):
-            num_quats = pose_quats.shape[0]
-        else:
-            num_quats = len(pose_quats)
-
-        num_digits = len(str(num_quats))
-        for j in range(num_quats):
-            image_filenames.append(os.path.join(temp_dirname, '{0:0{1}d}.png'.format(j,num_digits)))
-    else:
-        image_filenames = filenames
-    
-    
-    path_file = temp_dirname + '/path.txt'.format()
-    with open(path_file, 'w') as f:
-        for filename in image_filenames:
-            f.write('{}\n'.format(filename))
-
-    if(debug_mode):
-        debug_cmd = ''
-    else:
-        debug_cmd = '> /dev/null 2>&1'
-
-    if(standard_lighting):
-        lighting_cmd = ' --light_num_lower {} --light_num_upper {}'.format(10, 10) + \
-                       ' --light_energy_mean {} --light_energy_std {} '.format(2, 1e-100) + \
-                       ' --light_environment_energy_lower {} --light_environment_energy_upper {} '.format(10.0, 10.0)
-                       
-    elif(False):
-        lighting_cmd = ' --light_num_lower {} --light_num_upper {}'.format(0, 0) + \
-                       ' --light_dist_lower {} --light_dist_upper {}'.format() + \
-                       ' --light_azimuth_lower {} --light_azimuth_upper {}'.format() + \
-                       ' --light_elevation_lower {} --light_elevation_upper {}'.format() + \
-                       ' --light_energy_mean {} --light_energy_std {}'.format() + \
-                       ' --light_environment_energy_lower {} --light_environment_energy_upper {} '.format()
-    else:
-        lighting_cmd = ''
-
-    if(len(pose_quats) > 2):
-        quats_file = temp_dirname + '/quats.npy'
-        np.save(quats_file, pose_quats)
-        quat_cmd = '--quats_file {}'.format(quats_file)
-    else:
-        pose_quats = str([q.tolist() for q in pose_quats]).replace(',','').replace('[','').replace(']','')
-        quat_cmd = '--pos_quats {}'.format(pose_quats)
-        
-    render_cmd = '{} {} --background --python {} -- --shape_file {} --camera_dist {} --path_file {} {} {} {} '.format(
-        blender_executable_path, blank_blend_file_path, render_code, model_file, camera_dist, path_file, quat_cmd, lighting_cmd, debug_cmd)     
-    rendered_imgs = []
     try:
+        temp_dirname = tempfile.mkdtemp(dir = temp_render_dir)
+
+        if(filenames is None):
+            image_filenames = []
+            if(type(pose_quats) == np.ndarray):
+                num_quats = pose_quats.shape[0]
+            else:
+                num_quats = len(pose_quats)
+
+            num_digits = len(str(num_quats))
+            for j in range(num_quats):
+                image_filenames.append(os.path.join(temp_dirname, '{0:0{1}d}.png'.format(j,num_digits)))
+        else:
+            image_filenames = filenames
+        
+        
+        path_file = temp_dirname + '/path.txt'.format()
+        with open(path_file, 'w') as f:
+            for filename in image_filenames:
+                f.write('{}\n'.format(filename))
+
+        if(debug_mode):
+            debug_cmd = ''
+        else:
+            debug_cmd = '> /dev/null 2>&1'
+
+        if(standard_lighting):
+            lighting_cmd = ' --light_num_lower {} --light_num_upper {}'.format(10, 10) + \
+                           ' --light_energy_mean {} --light_energy_std {} '.format(2, 1e-100) + \
+                           ' --light_environment_energy_lower {} --light_environment_energy_upper {} '.format(10.0, 10.0)
+                           
+        elif(False):
+            lighting_cmd = ' --light_num_lower {} --light_num_upper {}'.format(0, 0) + \
+                           ' --light_dist_lower {} --light_dist_upper {}'.format() + \
+                           ' --light_azimuth_lower {} --light_azimuth_upper {}'.format() + \
+                           ' --light_elevation_lower {} --light_elevation_upper {}'.format() + \
+                           ' --light_energy_mean {} --light_energy_std {}'.format() + \
+                           ' --light_environment_energy_lower {} --light_environment_energy_upper {} '.format()
+        else:
+            lighting_cmd = ''
+
+        if(len(pose_quats) > 2):
+            quats_file = temp_dirname + '/quats.npy'
+            np.save(quats_file, pose_quats)
+            quat_cmd = '--quats_file {}'.format(quats_file)
+        else:
+            pose_quats = str([q.tolist() for q in pose_quats]).replace(',','').replace('[','').replace(']','')
+            quat_cmd = '--pos_quats {}'.format(pose_quats)
+            
+        render_cmd = '{} {} --background --python {} -- --shape_file {} --camera_dist {} --path_file {} {} {} {} '.format(
+            blender_executable_path, blank_blend_file_path, render_code, model_file, camera_dist, path_file, quat_cmd, lighting_cmd, debug_cmd)     
+   
         os.system(render_cmd)
         image_filenames = sorted(glob.glob(temp_dirname+'/*.png'))
         
@@ -169,11 +166,12 @@ def renderView(model_file, pose_quats, filenames = None,
             for render_filename in image_filenames:
                 img = cv2.imread(render_filename, cv2.IMREAD_UNCHANGED)
                 rendered_imgs.append(img)
-                
-        shutil.rmtree(temp_dirname)
+
     except Exception as e:
-        shutil.rmtree(temp_dirname)
         raise(e)
+    finally:
+        shutil.rmtree(temp_dirname)
+    
     return rendered_imgs
 
 
