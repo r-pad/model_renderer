@@ -1,7 +1,5 @@
 # model_renderer
-Model Renderer
-======
-Two wrappers to blender for generating object images at various orientations, originally based off of [RenderForCNN](https://github.com/ShapeNet/RenderForCNN)'s renderer. 
+Two wrappers to blender for generating object images at various orientations, originally based off of [RenderForCNN](https://github.com/ShapeNet/RenderForCNN)'s renderer. Depends on [quat_math](https://github.com/r-pad/quat_math).
 
 BpyRenderer
 -----
