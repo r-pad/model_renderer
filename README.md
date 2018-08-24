@@ -34,5 +34,5 @@ Batch Rendering
 To render all models in a dataset, use render_scripts/render_model_set.py. You can pass the models as single model path, txt file containing a list of models, or a director where all the models are saved. The folder structure the renderer expects in class/model/mesh.obj. The mesh_dir_depth should be equal to the depth of the subfolders between the model folder and the mesh.
 
 ```
-python render_scripts/render_model_set.py --models /path/to/objs/plys --render_folder /path/to/render/too --num_poses 500 --num_workers 32
+python render_scripts/render_model_set.py --models /path/to/objs --render_folder /path/to/render/too --num_poses 500 --num_workers 32
 ```
