@@ -144,7 +144,7 @@ class BpyRenderer(object):
             self.bpy.ops.object.lamp_add(type='POINT', view_align = False, location=(lx, ly, lz))
             self.bpy.context.selected_objects[0].data.energy = np.random.normal(self.light_energy_mean, self.light_energy_std)
 
-    def loadModel(self, model_filename):
+    def loadModel(self, model_filename, model_scale=1.0, emit = 0.5):
         #self.bpy.ops.object.select_by_type(type='MESH')
         #self.bpy.ops.object.delete(use_global=False)
 
@@ -155,13 +155,21 @@ class BpyRenderer(object):
             unmute(stdout)
         elif(model_file_ext.lower() == 'ply'):
             stdout = mute()
-            #self.bpy.ops.import_mesh.ply(filepath=model_filename)
-            self.loadPly(model_filename)
+            self.bpy.ops.import_mesh.ply(filepath=model_filename)
+            #self.loadPly(model_filename)
             #self.bpy.context.selected_objects[-1].select = False
             unmute(stdout)
-            #mat = self.bpy.data.materials.new('material_1')
-            #self.bpy.data.objects['mesh'].active_material = mat
-            #mat.use_vertex_color_paint = True
+            mesh = bpy.context.selected_objects[0]
+            if(model_scale != 1.0):
+                mesh.scale[0] = model_scale
+                mesh.scale[1] = model_scale
+                mesh.scale[2] = model_scale
+            mat = self.bpy.data.materials.new('material_1')
+            mesh.active_material = mat
+            mat.use_vertex_color_paint = True
+            mat.diffuse_intensity = 1.0
+            mat.specular_intensity = 0.0
+            mat.emit = emit
         else:
             raise ValueError('Invalid Model File Type {}'.format(model_file_ext))
         model_id = uuid.uuid4()

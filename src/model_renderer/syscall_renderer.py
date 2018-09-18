@@ -101,7 +101,8 @@ def objCentenedCameraPos(dist, azimuth_deg, elevation_deg):
     return (x, y, z)
 
 def renderView(model_file, pose_quats, filenames = None, 
-               camera_dist=2, standard_lighting=False, 
+               camera_dist=2, model_scale = 1.0,
+               standard_lighting=False, 
                debug_mode=False):
     assert filenames is None or len(pose_quats) == len(filenames), 'filenames must be None or same size as pose_quats, Expected {}, Got {}'.format(len(pose_quats), len(filenames))
     try:
@@ -131,7 +132,7 @@ def renderView(model_file, pose_quats, filenames = None,
         else:
             debug_cmd = '> /dev/null 2>&1'
 
-        if(standard_lighting):
+        if(standard_lighting > 0):
             lighting_cmd = ' --light_num_lower {} --light_num_upper {}'.format(10, 10) + \
                            ' --light_energy_mean {} --light_energy_std {} '.format(2, 1e-100) + \
                            ' --light_environment_energy_lower {} --light_environment_energy_upper {} '.format(10.0, 10.0)
@@ -143,6 +144,8 @@ def renderView(model_file, pose_quats, filenames = None,
                            ' --light_elevation_lower {} --light_elevation_upper {}'.format() + \
                            ' --light_energy_mean {} --light_energy_std {}'.format() + \
                            ' --light_environment_energy_lower {} --light_environment_energy_upper {} '.format()
+        elif(standard_lighting < 0):
+            lighting_cmd = '--lighting_off '
         else:
             lighting_cmd = ''
 
@@ -154,8 +157,8 @@ def renderView(model_file, pose_quats, filenames = None,
             pose_quats = str([q.tolist() for q in pose_quats]).replace(',','').replace('[','').replace(']','')
             quat_cmd = '--pos_quats {}'.format(pose_quats)
             
-        render_cmd = '{} {} --background --python {} -- --shape_file {} --camera_dist {} --path_file {} {} {} {} '.format(
-            blender_executable_path, blank_blend_file_path, render_code, model_file, camera_dist, path_file, quat_cmd, lighting_cmd, debug_cmd)     
+        render_cmd = '{} {} --background --python {} -- --shape_file {} --camera_dist {} --model_scale {} --path_file {} {} {} {} '.format(
+            blender_executable_path, blank_blend_file_path, render_code, model_file, camera_dist, model_scale, path_file, quat_cmd, lighting_cmd, debug_cmd)     
    
         os.system(render_cmd)
         image_filenames = sorted(glob.glob(temp_dirname+'/*.png'))
@@ -185,6 +188,7 @@ def main():
     parser.add_argument('--quats_file', type=str, default=None)
 
     parser.add_argument('--camera_dist', type=float, required=True)
+    parser.add_argument('--model_scale', type=float, default=1.0)
     parser.add_argument('--path_file', type=str, default=None)
     
     parser.add_argument('--light_num_lower', type=int, default=5)
@@ -199,6 +203,8 @@ def main():
     parser.add_argument('--light_energy_std', type=float, default=2)
     parser.add_argument('--light_environment_energy_lower', type=float, default=0.5)
     parser.add_argument('--light_environment_energy_upper', type=float, default=10.0)
+    
+    parser.add_argument('--lighting_off',  dest='lighting_off', action='store_true')
 
     args = parser.parse_args(sys.argv[6:])
 
@@ -216,9 +222,21 @@ def main():
         bpy.ops.import_scene.obj(filepath=args.shape_file) 
     elif(shape_file_ext.lower() == 'ply'):
         bpy.ops.import_mesh.ply(filepath=args.shape_file)
+        mesh = bpy.context.selected_objects[0]
+        if(args.model_scale != 1.0):
+            mesh.scale[0] = args.model_scale
+            mesh.scale[1] = args.model_scale
+            mesh.scale[2] = args.model_scale
+        
         mat = bpy.data.materials.new('material_1')
-        bpy.data.objects['mesh'].active_material = mat
+        mesh.active_material = mat
         mat.use_vertex_color_paint = True
+        mat.diffuse_intensity = 1.0
+        mat.specular_intensity = 0.0
+        if(args.lighting_off):
+            mat.emit = 1.0
+        else:
+            mat.emit = 0.5
     else:
         raise ValueError('Invalid Model File Type {}'.format(shape_file_ext))
 
@@ -281,19 +299,20 @@ def main():
     
         # set environment lighting
         #bpy.context.space_data.context = 'WORLD'
-        bpy.context.scene.world.light_settings.use_environment_light = True
-        bpy.context.scene.world.light_settings.environment_energy = np.random.uniform(args.light_environment_energy_lower, args.light_environment_energy_upper)
-        bpy.context.scene.world.light_settings.environment_color = 'PLAIN'
     
-        # set point lights
-        for i in range(random.randint(args.light_num_lower,args.light_num_upper)):
-            light_azimuth_deg = np.random.uniform(args.light_azimuth_lower, args.light_azimuth_upper)
-            light_elevation_deg  = np.random.uniform(args.light_elevation_lower, args.light_elevation_upper)
-            light_dist = np.random.uniform(args.light_dist_lower, args.light_dist_upper)
-            lx, ly, lz = objCentenedCameraPos(light_dist, light_azimuth_deg, light_elevation_deg)
-            bpy.ops.object.lamp_add(type='POINT', view_align = False, location=(lx, ly, lz))
-            bpy.context.selected_objects[0].data.energy = np.random.normal(args.light_energy_mean, args.light_energy_std)
-            
+        if(not args.lighting_off):
+            bpy.context.scene.world.light_settings.use_environment_light = True
+            bpy.context.scene.world.light_settings.environment_energy = np.random.uniform(args.light_environment_energy_lower, args.light_environment_energy_upper)
+            bpy.context.scene.world.light_settings.environment_color = 'PLAIN'
+            # set point lights
+            for i in range(random.randint(args.light_num_lower,args.light_num_upper)):
+                light_azimuth_deg = np.random.uniform(args.light_azimuth_lower, args.light_azimuth_upper)
+                light_elevation_deg  = np.random.uniform(args.light_elevation_lower, args.light_elevation_upper)
+                light_dist = np.random.uniform(args.light_dist_lower, args.light_dist_upper)
+                lx, ly, lz = objCentenedCameraPos(light_dist, light_azimuth_deg, light_elevation_deg)
+                bpy.ops.object.lamp_add(type='POINT', view_align = False, location=(lx, ly, lz))
+                bpy.context.selected_objects[0].data.energy = np.random.normal(args.light_energy_mean, args.light_energy_std)
+                
         ro_mat_pre = np.array([[1,0,0],[0,0,1],[0,-1,0]])
         ro_mat_post = np.array([[0,0,1],[0,-1,0],[1,0,0]])
         cam_rot = ro_mat_pre.dot(view_mat[:3,:3].T.dot(ro_mat_post))
