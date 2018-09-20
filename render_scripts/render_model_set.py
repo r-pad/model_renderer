@@ -110,6 +110,7 @@ def main(model_filenames,
          camera_dist = 2,
          randomize_lighting = False,
          mesh_dir_depth = 0):
+    import IPython; IPython.embed()
     renderDataModelBatch(num_model_imgs = num_poses, 
                          num_workers = num_workers, 
                          model_filenames = model_filenames, 

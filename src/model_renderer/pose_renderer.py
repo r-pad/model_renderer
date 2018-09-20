@@ -91,12 +91,14 @@ class BpyRenderer(object):
         self.light_environment_energy_lower = light_environment_energy_lower
         self.light_environment_energy_upper = light_environment_energy_upper
 
-    def setStandardLighting(self):
-        self.randomize_lighting = False
-
+    def removeLighting(self):
         # clear default lights
         self.bpy.ops.object.select_by_type(type='LAMP')
         self.bpy.ops.object.delete(use_global=False)
+
+    def setStandardLighting(self):
+        self.randomize_lighting = False
+        self.removeLighting()
         # set environment lighting
         self.bpy.context.scene.world.light_settings.use_environment_light = True
         self.bpy.context.scene.world.light_settings.environment_energy = 10.0
@@ -128,9 +130,7 @@ class BpyRenderer(object):
             #self.bpy.data.objects['Point'].data.energy = 2.0
        
     def randomizeLighting(self):
-        # clear default lights
-        self.bpy.ops.object.select_by_type(type='LAMP')
-        self.bpy.ops.object.delete(use_global=False)
+        self.removeLighting()
         # set environment lighting
         self.bpy.context.scene.world.light_settings.use_environment_light = True
         self.bpy.context.scene.world.light_settings.environment_energy = np.random.uniform(self.light_environment_energy_lower, self.light_environment_energy_upper)
@@ -144,7 +144,7 @@ class BpyRenderer(object):
             self.bpy.ops.object.lamp_add(type='POINT', view_align = False, location=(lx, ly, lz))
             self.bpy.context.selected_objects[0].data.energy = np.random.normal(self.light_energy_mean, self.light_energy_std)
 
-    def loadModel(self, model_filename, model_scale=1.0, emit = 0.5):
+    def loadModel(self, model_filename, model_scale=1.0, emit = 1.0):
         #self.bpy.ops.object.select_by_type(type='MESH')
         #self.bpy.ops.object.delete(use_global=False)
 
@@ -159,7 +159,7 @@ class BpyRenderer(object):
             #self.loadPly(model_filename)
             #self.bpy.context.selected_objects[-1].select = False
             unmute(stdout)
-            mesh = bpy.context.selected_objects[0]
+            mesh = self.bpy.context.selected_objects[0]
             if(model_scale != 1.0):
                 mesh.scale[0] = model_scale
                 mesh.scale[1] = model_scale
