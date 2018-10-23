@@ -6,6 +6,8 @@ Created on Mon Apr  9 21:14:47 2018
 """
 import model_renderer.syscall_renderer as renderer
 from quat_math.transformations import random_quaternion
+from generic_pose.bbTrans.discretized4dSphere import S3Grid
+
 import os
 import numpy as np
 from functools import partial
@@ -23,7 +25,7 @@ def mute():
     os.open(logfile, os.O_WRONLY) 
     
 def renderModel(model_filename, model_scale,
-                data_folder, num_model_imgs,
+                data_folder, render_quats,
                 camera_dist = 2.0, standard_lighting = True):
 
     num_digits = len(str(num_model_imgs))
@@ -31,19 +33,12 @@ def renderModel(model_filename, model_scale,
     model = model_filename[-6:-4]
     os.makedirs(os.path.join(data_folder, model), exist_ok=True)
 
-    filenames = []
-    for j in range(num_model_imgs):
-        filenames.append(os.path.join(data_folder, '{0}/linemod_{0}_{1:0{2}d}'.format(model, j, num_digits)))
-     
-    render_quats = []
     image_filenames = []
+    for j, quat in enumerate(render_quats):
+        data_prefix = os.path.join(data_folder, '{0}/linemod_{0}_{1:0{2}d}'.format(model, j, num_digits))
+        np.save(data_prefix + '.npy',  quat)
+        image_filenames.append(data_prefix + '.png')
     
-    for data_filename in filenames:
-        image_filenames.append(data_filename + '.png')
-        quat = random_quaternion()
-        np.save(data_filename + '.npy',  quat)
-        render_quats.append(quat)
-
     try:
         renderer.renderView(model_filename, render_quats,
                             camera_dist=camera_dist, model_scale = model_scale, 
@@ -54,10 +49,13 @@ def renderModel(model_filename, model_scale,
     return filenames
 
 
-def renderDataModelBatch(num_model_imgs, num_workers, model_filenames, data_folder, model_scales):
+def renderDataModelBatch(base_level, num_workers, model_filenames, data_folder, model_scales):
+    grid = S3Grid(base_level)
+    base_vertices = np.unique(grid.vertices, axis = 0)
+
     batch_render = partial(renderModel,
                            data_folder = data_folder,
-                           num_model_imgs = num_model_imgs,
+                           render_quats = base_vertices,
                            camera_dist = 2,
                            standard_lighting = -1)
                    
@@ -73,7 +71,7 @@ def renderDataModelBatch(num_model_imgs, num_workers, model_filenames, data_fold
 
 if __name__ == '__main__':
     from pysixd.inout import load_yaml
-    num_poses = 500
+    base_level = 2
     print('Rendering Linemod Classes')
     #model_file = '/home/bokorn/src/generic_pose/generic_pose/training_sets/model_sets/linemod.txt'
     #with open(model_file, 'r') as f:    
@@ -89,6 +87,6 @@ if __name__ == '__main__':
     #linemod_folder = '/ssd0/bokorn/data/renders/linemod'
     linemod_folder = '/media/bokorn/ExtraDrive2/renders/linemod6DC'
     os.makedirs(linemod_folder, exist_ok=True)
-    renderDataModelBatch(num_model_imgs=num_poses, num_workers=20, model_filenames=linemod_filenames, data_folder=linemod_folder, model_scales = model_scales)
+    renderDataModelBatch(base_level = base_level, num_workers=20, model_filenames=linemod_filenames, data_folder=linemod_folder, model_scales = model_scales)
     
 

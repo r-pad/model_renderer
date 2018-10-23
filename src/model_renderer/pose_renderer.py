@@ -20,6 +20,9 @@ blank_blend_file_path = os.environ.get('BLANK_BLEND_PATH',
         os.path.join(render_root_folder, 'blank.blend'))
 temp_render_dir = os.environ.get('TEMP_RENDER_DIR', None)
 
+def identityFunc(x):
+    return x
+
 def mute():
     # redirect output to log file
     #logfile = 'blender_render.log'
@@ -52,7 +55,8 @@ class BpyRenderer(object):
     #unmute(stdout)
 
     def __init__(self, blend_file_path = blank_blend_file_path,
-                 resolution = (448,448)):
+                 resolution = (448,448), transform_func = identityFunc):
+        self.transformFunc = transform_func
         self.models = {}
         stdout = mute()
         self.temp_dir = tempfile.mkdtemp(dir = temp_render_dir)
@@ -260,7 +264,7 @@ class BpyRenderer(object):
                 if(self.randomize_lighting):
                     self.randomizeLighting()
 
-                pos_quat = pos_quat.copy()
+                pos_quat = self.transformFunc(pos_quat.copy())
                 pos_quat[2] *= -1.0
                 quat_mat = tf_trans.quaternion_matrix(pos_quat)
                 view_mat = quat_mat.dot(camera_mat)
