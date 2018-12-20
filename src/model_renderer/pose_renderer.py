@@ -51,7 +51,8 @@ def objCentenedCameraPos(dist, azimuth_deg, elevation_deg):
 
 class BpyRenderer(object):
     #stdout = mute()
-    import bpy   
+    import bpy
+    import mathutils
     #unmute(stdout)
 
     def __init__(self, blend_file_path = blank_blend_file_path,
@@ -239,6 +240,26 @@ class BpyRenderer(object):
                     pass
         self.bpy.ops.object.delete(use_global=False)
         self.models = {}
+
+    def renderTrans(self, obj_mat):
+        rotate_x = np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,1]])
+        cam_mat = np.linalg.inv(obj_mat).dot(rotate_x)
+
+        try:
+            render_filename = os.path.join(self.temp_dir, '0.png')
+            self.cam_obj.matrix_world = self.mathutils.Matrix(cam_mat)
+            self.bpy.data.scenes['Scene'].render.filepath = render_filename
+            stdout = mute()
+            self.bpy.ops.render.render( write_still=True )
+            unmute(stdout)
+
+            img = cv2.imread(render_filename, cv2.IMREAD_UNCHANGED)
+            return img
+
+        except Exception as e:
+            raise(e)
+        finally:
+            os.remove(render_filename)
 
     def renderPose(self, pose_quats, 
                    image_filenames=None, 
