@@ -12,7 +12,9 @@ import sys
 import os
 import plyfile
 import uuid
+from tqdm import tqdm
 
+from multiprocessing import Lock
 import quat_math.transformations as tf_trans
 
 render_root_folder = os.path.dirname(os.path.abspath(__file__))
@@ -57,6 +59,7 @@ class BpyRenderer(object):
 
     def __init__(self, blend_file_path = blank_blend_file_path,
                  resolution = (448,448), transform_func = identityFunc):
+        self.render_mutex = Lock()
         self.transformFunc = transform_func
         self.models = {}
         stdout = mute()
@@ -241,92 +244,107 @@ class BpyRenderer(object):
         self.bpy.ops.object.delete(use_global=False)
         self.models = {}
 
-    def renderTrans(self, obj_mat):
-        rotate_x = np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,1]])
-        cam_mat = np.linalg.inv(obj_mat).dot(rotate_x)
+    def setCameraMatrix(self, fx, fy, px, py, w, h):
+        self.bpy.context.scene.render.resolution_x = w
+        self.bpy.context.scene.render.resolution_y = h
+        self.bpy.context.scene.render.resolution_percentage = 100
+        f = self.cam_obj.data.lens
+        self.cam_obj.data.sensor_width =  w * f / fx
+        self.cam_obj.data.sensor_height = h * f / fy
+        self.cam_obj.data.shift_x = (w/2 - px)/w
+        self.cam_obj.data.shift_y = (py - h/2)/h
 
-        try:
-            render_filename = os.path.join(self.temp_dir, '0.png')
-            self.cam_obj.matrix_world = self.mathutils.Matrix(cam_mat)
-            self.bpy.data.scenes['Scene'].render.filepath = render_filename
-            stdout = mute()
-            self.bpy.ops.render.render( write_still=True )
-            unmute(stdout)
-
-            img = cv2.imread(render_filename, cv2.IMREAD_UNCHANGED)
-            return img
-
-        except Exception as e:
-            raise(e)
-        finally:
-            os.remove(render_filename)
-
-    def renderPose(self, pose_quats, 
-                   image_filenames=None, 
-                   camera_dist = 2.0):
-        return_images = False
-        try:
-            if(image_filenames is None):
-                assert image_filenames is None or len(pose_quats) == len(image_filenames), 'image_filenames must be None or same size as pose_quats, Expected {}, Got {}'.format(len(pose_quats), len(filenames))
-                return_images = True
-                image_filenames = []
-                if(type(pose_quats) == np.ndarray):
-                    num_quats = pose_quats.shape[0]
-                else:
-                    num_quats = len(pose_quats)
-        
-                num_digits = len(str(num_quats))
-                for j in range(num_quats):
-                    image_filenames.append(os.path.join(self.temp_dir, '{0:0{1}d}.png'.format(j,num_digits)))
-
-            camera_mat = np.eye(4)
-            camera_mat[0,3] = camera_dist
-            for pose_num, (pos_quat, filename) in enumerate(zip(pose_quats, image_filenames)):
-                if(self.randomize_lighting):
-                    self.randomizeLighting()
-
-                pos_quat = self.transformFunc(pos_quat.copy())
-                pos_quat[2] *= -1.0
-                quat_mat = tf_trans.quaternion_matrix(pos_quat)
-                view_mat = quat_mat.dot(camera_mat)
-                cam_pos = view_mat[:3,3]              
-                cam_quat = tf_trans.quaternion_from_matrix(view_mat)
-                   
-                ro_mat_pre = np.array([[1,0,0],[0,0,1],[0,-1,0]])
-                ro_mat_post = np.array([[0,0,1],[0,-1,0],[1,0,0]])
-                cam_rot = ro_mat_pre.dot(view_mat[:3,:3].T.dot(ro_mat_post))
-                cam_mat = np.eye(4)       
-                cam_mat[:3,:3] = cam_rot
-                cam_quat = tf_trans.quaternion_from_matrix(cam_mat)
-                
-                self.cam_obj.location[0] = cam_pos[0]
-                self.cam_obj.location[1] = cam_pos[1]
-                self.cam_obj.location[2] = cam_pos[2]
-                self.cam_obj.rotation_mode = 'QUATERNION'
-                # Blender is [w,x,y,z]
-                # Transform is [x,y,z,w]
-                self.cam_obj.rotation_quaternion[0] = cam_quat[0]
-                self.cam_obj.rotation_quaternion[1] = cam_quat[1]
-                self.cam_obj.rotation_quaternion[2] = cam_quat[2]
-                self.cam_obj.rotation_quaternion[3] = cam_quat[3]
-
-                self.bpy.data.scenes['Scene'].render.filepath = filename
+    def renderTrans(self, obj_mat, z_out = True):
+        with self.render_mutex:
+            cam_mat = np.linalg.inv(obj_mat)
+            if(z_out):
+                rotate_x = np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,1]])
+                cam_mat = cam_mat.dot(rotate_x)
+            
+            try:
+                render_filename = os.path.join(self.temp_dir, '0.png')
+                self.cam_obj.matrix_world = self.mathutils.Matrix(cam_mat)
+                self.bpy.data.scenes['Scene'].render.filepath = render_filename
                 stdout = mute()
                 self.bpy.ops.render.render( write_still=True )
                 unmute(stdout)
 
-            if(return_images):
-                rendered_imgs = []
-                for render_filename in image_filenames:
-                    img = cv2.imread(render_filename, cv2.IMREAD_UNCHANGED)
-                    rendered_imgs.append(img)
-                return rendered_imgs
-        except Exception as e:
-            raise(e)
-        finally:
-            if(return_images):
-                for render_filename in image_filenames:
-                    os.remove(render_filename)
+                img = cv2.imread(render_filename, cv2.IMREAD_UNCHANGED)
+                return img
+
+            except Exception as e:
+                raise(e)
+            finally:
+                os.remove(render_filename)
+
+    def renderPose(self, pose_quats, 
+                   image_filenames=None, 
+                   camera_dist = 2.0):
+        with self.render_mutex:
+            return_images = False
+            try:
+                if(image_filenames is None):
+                    assert image_filenames is None or len(pose_quats) == len(image_filenames), 'image_filenames must be None or same size as pose_quats, Expected {}, Got {}'.format(len(pose_quats), len(filenames))
+                    return_images = True
+                    image_filenames = []
+                    if(type(pose_quats) == np.ndarray):
+                        num_quats = pose_quats.shape[0]
+                    else:
+                        num_quats = len(pose_quats)
+            
+                    num_digits = len(str(num_quats))
+                    for j in range(num_quats):
+                        image_filenames.append(os.path.join(self.temp_dir, '{0:0{1}d}.png'.format(j,num_digits)))
+
+                camera_mat = np.eye(4)
+                camera_mat[0,3] = camera_dist
+                pbar = tqdm(enumerate(zip(pose_quats, image_filenames)), total = len(image_filenames))
+                for pose_num, (pos_quat, filename) in pbar:
+                    if(self.randomize_lighting):
+                        self.randomizeLighting()
+
+                    pos_quat = self.transformFunc(pos_quat.copy())
+                    pos_quat[2] *= -1.0
+                    quat_mat = tf_trans.quaternion_matrix(pos_quat)
+                    view_mat = quat_mat.dot(camera_mat)
+                    cam_pos = view_mat[:3,3]              
+                    cam_quat = tf_trans.quaternion_from_matrix(view_mat)
+                       
+                    ro_mat_pre = np.array([[1,0,0],[0,0,1],[0,-1,0]])
+                    ro_mat_post = np.array([[0,0,1],[0,-1,0],[1,0,0]])
+                    cam_rot = ro_mat_pre.dot(view_mat[:3,:3].T.dot(ro_mat_post))
+                    cam_mat = np.eye(4)       
+                    cam_mat[:3,:3] = cam_rot
+                    cam_quat = tf_trans.quaternion_from_matrix(cam_mat)
+                    
+                    self.cam_obj.location[0] = cam_pos[0]
+                    self.cam_obj.location[1] = cam_pos[1]
+                    self.cam_obj.location[2] = cam_pos[2]
+                    self.cam_obj.rotation_mode = 'QUATERNION'
+                    # Blender is [w,x,y,z]
+                    # Transform is [x,y,z,w]
+                    self.cam_obj.rotation_quaternion[0] = cam_quat[0]
+                    self.cam_obj.rotation_quaternion[1] = cam_quat[1]
+                    self.cam_obj.rotation_quaternion[2] = cam_quat[2]
+                    self.cam_obj.rotation_quaternion[3] = cam_quat[3]
+
+                    self.bpy.data.scenes['Scene'].render.filepath = filename
+                    stdout = mute()
+                    self.bpy.ops.render.render( write_still=True )
+                    unmute(stdout)
+
+                if(return_images):
+                    rendered_imgs = []
+                    for render_filename in image_filenames:
+                        img = cv2.imread(render_filename, cv2.IMREAD_UNCHANGED)
+                        rendered_imgs.append(img)
+                    return rendered_imgs
+            except Exception as e:
+                raise(e)
+            finally:
+                if(return_images):
+                    for render_filename in image_filenames:
+                        os.remove(render_filename)
 
     def __del__(self):
         shutil.rmtree(self.temp_dir)
