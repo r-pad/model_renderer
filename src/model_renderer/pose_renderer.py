@@ -17,6 +17,11 @@ from tqdm import tqdm
 from multiprocessing import Lock
 import quat_math.transformations as tf_trans
 
+# Depth Includes
+import OpenEXR
+import array
+import Imath
+
 render_root_folder = os.path.dirname(os.path.abspath(__file__))
 blank_blend_file_path = os.environ.get('BLANK_BLEND_PATH', 
         os.path.join(render_root_folder, 'blank.blend'))
@@ -51,6 +56,15 @@ def objCentenedCameraPos(dist, azimuth_deg, elevation_deg):
     z = (dist * np.sin(phi))
     return (x, y, z)
 
+# from https://github.com/TonythePlaneswalker/pcn/blob/master/render/process_exr.py
+def loadEXR(filename, height, width):
+    file = OpenEXR.InputFile(filename)
+    depth_arr = array.array('f', file.channel('R', Imath.PixelType(Imath.PixelType.FLOAT)))
+    depth = np.array(depth_arr).reshape((height, width))
+    depth[depth < 0] = 0
+    depth[np.isinf(depth)] = 0
+    return depth
+
 class BpyRenderer(object):
     #stdout = mute()
     import bpy
@@ -76,7 +90,7 @@ class BpyRenderer(object):
         self.bpy.data.worlds["World"].light_settings.use_ambient_occlusion = True
         self.setStandardLighting()
         self.cam_obj = self.bpy.data.objects['Camera']
-
+        self.depth_output = None
 
     def setLighting(self, light_num_lower=5, light_num_upper=10,
                     light_dist_lower=8, light_dist_upper=20,
@@ -253,6 +267,59 @@ class BpyRenderer(object):
         self.cam_obj.data.sensor_height = h * f / fy
         self.cam_obj.data.shift_x = (w/2 - px)/w
         self.cam_obj.data.shift_y = (py - h/2)/h
+        self.focal_length = (fx, fy)
+        self.width = w
+        self.height = h
+
+    def setDepth(self): 
+        # https://github.com/TonythePlaneswalker/pcn/blob/master/render/render_depth.py 
+        # camera
+
+        self.cam_obj.data.angle = np.arctan(self.width / 2. / self.focal_length[1]) * 2.
+
+        # render layer
+        scene = self.bpy.context.scene
+        scene.render.filepath = 'buffer'
+        #scene.render.image_settings.color_depth = '16'
+
+        # compositor nodes
+        scene.use_nodes = True
+        tree = scene.node_tree
+        rl = tree.nodes.new('CompositorNodeRLayers')
+        self.depth_output = tree.nodes.new('CompositorNodeOutputFile')
+        self.depth_output.base_path = ''
+        self.depth_output.format.file_format = 'OPEN_EXR'
+        tree.links.new(rl.outputs['Depth'], self.depth_output.inputs[0])
+
+    def render(self, render_prefix = None, return_images = True):
+        if(render_prefix is None):
+            render_prefix = os.path.join(self.temp_dir, '#')
+
+        try:
+            render_filename = render_prefix + '.png'
+            self.bpy.data.scenes['Scene'].render.filepath = render_filename
+            if(self.depth_output is not None):
+                depth_filename = render_prefix + '.exr'
+                self.depth_output.file_slots[0].path = depth_filename
+                depth_filename = depth_filename.replace('#', '1') 
+                
+            stdout = mute()
+            self.bpy.ops.render.render( write_still=True )
+            unmute(stdout)
+            if(return_images):
+                img = cv2.imread(render_filename, cv2.IMREAD_UNCHANGED)
+                if(self.depth_output is not None):
+                    depth = loadEXR(depth_filename, self.height, self.width)
+                    return img, depth
+                return img
+
+        except Exception as e:
+            raise(e)
+        finally:
+            if(return_images):
+                os.remove(render_filename)
+                if(self.depth_output is not None):
+                    os.remove(depth_filename)
 
     def renderTrans(self, obj_mat, z_out = True):
         with self.render_mutex:
@@ -260,22 +327,9 @@ class BpyRenderer(object):
             if(z_out):
                 rotate_x = np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,1]])
                 cam_mat = cam_mat.dot(rotate_x)
-            
-            try:
-                render_filename = os.path.join(self.temp_dir, '0.png')
-                self.cam_obj.matrix_world = self.mathutils.Matrix(cam_mat)
-                self.bpy.data.scenes['Scene'].render.filepath = render_filename
-                stdout = mute()
-                self.bpy.ops.render.render( write_still=True )
-                unmute(stdout)
-
-                img = cv2.imread(render_filename, cv2.IMREAD_UNCHANGED)
-                return img
-
-            except Exception as e:
-                raise(e)
-            finally:
-                os.remove(render_filename)
+                
+            self.cam_obj.matrix_world = self.mathutils.Matrix(cam_mat)
+            return self.render()
 
     def renderPose(self, pose_quats, 
                    image_filenames=None, 
@@ -328,10 +382,7 @@ class BpyRenderer(object):
                     self.cam_obj.rotation_quaternion[2] = cam_quat[2]
                     self.cam_obj.rotation_quaternion[3] = cam_quat[3]
 
-                    self.bpy.data.scenes['Scene'].render.filepath = filename
-                    stdout = mute()
-                    self.bpy.ops.render.render( write_still=True )
-                    unmute(stdout)
+                    self.render(filename[:-4], return_images)
 
                 if(return_images):
                     rendered_imgs = []
