@@ -1,9 +1,19 @@
 # model_renderer
 Two wrappers to blender for generating object images at various orientations, originally based off of [RenderForCNN](https://github.com/ShapeNet/RenderForCNN)'s renderer. Depends on [quat_math](https://github.com/r-pad/quat_math).
 
+Blender as a Python Module
+-----
+This script will clone blender to where ever its run and installs bpy to the current virtual environment. Requires python3.6.
+This script assumes you are in a virtual environment. If you want to install without a virtual environment, change the PYENV to the relavent locations.
+```
+. venv/bin/activate
+./install_bpy.bash
+python -c "import bpy ; bpy.ops.render.render(write_still=True)"
+```
+
 BpyRenderer
 -----
-Found in model_renderer.pose_renderer. This renderer required a blender complied as a [python module](https://gist.github.com/alexlee-gk/3790bf5916649082d9d6). Models can be loaded and hidden for faster rendering, as loading the model tends to be the bottle neck. Only one instance of this class can exist per python interpreter, so it is not the best version for paralleization. 
+Found in model_renderer.pose_renderer. This renderer required a blender complied as a python module. Models can be loaded and hidden for faster rendering, as loading the model tends to be the bottle neck. Only one instance of this class can exist per python interpreter, so it is not the best version for paralleization. 
 
 ```python
 renderer = BpyRenderer()
