@@ -70,9 +70,11 @@ class BpyRenderer(object):
     import bpy
     import mathutils
     #unmute(stdout)
-
     def __init__(self, blend_file_path = blank_blend_file_path,
-                 resolution = (448,448), transform_func = identityFunc):
+                 resolution = (448,448), transform_func = identityFunc,
+                 remove_doubles = True, edge_split = True):
+        self.remove_doubles = remove_doubles
+        self.edge_split = edge_split
         self.render_mutex = Lock()
         self.transformFunc = transform_func
         self.models = {}
@@ -194,6 +196,22 @@ class BpyRenderer(object):
             mat.emit = emit
         else:
             raise ValueError('Invalid Model File Type {}'.format(model_file_ext))
+
+        # Pulled from https://github.com/panmari/stanford-shapenet-renderer/blob/master/render_blender.py
+        for bpy_object in self.bpy.context.selected_objects: #bpy.context.scene.objects:
+            #if bpy_object.type in ['CAMERA', 'LAMP']:
+            #    continue
+            self.bpy.context.scene.objects.active = bpy_object
+            if self.remove_doubles:
+                self.bpy.ops.object.mode_set(mode='EDIT')
+                self.bpy.ops.mesh.remove_doubles()
+                self.bpy.ops.object.mode_set(mode='OBJECT')
+            if self.edge_split:
+                self.bpy.ops.object.modifier_add(type='EDGE_SPLIT')
+                self.bpy.context.object.modifiers["EdgeSplit"].split_angle = 1.32645
+                self.bpy.ops.object.modifier_apply(apply_as='DATA', modifier="EdgeSplit")
+
+
         model_id = uuid.uuid4()
         self.models[model_id] = self.bpy.context.selected_objects
         return model_id
