@@ -6,9 +6,21 @@ Blender as a Python Module
 This script will clone blender to where ever its run and installs bpy to the current virtual environment. Requires python3.6.
 This script assumes you are in a virtual environment. If you want to install without a virtual environment, change the PYENV to the relavent locations.
 ```
+sudo apt-get install gawk cmake cmake-curses-gui build-essential libjpeg-dev libpng-dev libtiff-dev git libfreetype6-dev libx11-dev flex bison libtbb-dev libxxf86vm-dev libxcursor-dev libxi-dev wget libsqlite3-dev libxrandr-dev libxinerama-dev libbz2-dev libncurses5-dev libssl-dev liblzma-dev libreadline-dev libopenal-dev libglew-dev yasm libtheora-dev libvorbis-dev libogg-dev libsdl1.2-dev libfftw3-dev patch bzip2 libxml2-dev libtinyxml-dev libjemalloc-dev libjpeg-dev libopenimageio-dev libopencolorio-dev libboost-all-dev libopenexr-dev libsndfile1-dev libx264-dev autotools-dev libtool m4 automake cmake libblkid-dev e2fslibs-dev libaudit-dev libavformat-dev ffmpeg libavdevice-dev libswscale-dev libopenjp2-7-dev libalut-dev libalut0 libmp3lame-dev libspnav-dev libspnav0 spacenavd
+
 . venv/bin/activate
+pip install numpy requests
 ./install_bpy.bash
 python -c "import bpy ; bpy.ops.render.render(write_still=True)"
+```
+
+If you get the error
+```
+error: the type ‘const OpenImageIO::v1_7::TypeDesc’ of constexpr variable ‘ccl::TypeFloat2’ is not literal
+```
+change line 31 of blender-git/blender/intern/cycles/util/util_param.h to 
+```
+static const/*expr*/ TypeDesc TypeFloat2(TypeDesc::FLOAT, TypeDesc::VEC2);
 ```
 
 BpyRenderer
